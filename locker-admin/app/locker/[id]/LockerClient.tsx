@@ -1,3 +1,4 @@
+"use client";
 // Клиентская страница локера — управление статусом, владельцем, QR-код
 import { useState, useEffect } from "react";
 import Link from "next/link";
