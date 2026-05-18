@@ -16,18 +16,10 @@ export default async function DashboardPage() {
     .select("*")
     .order("locker_number", { ascending: true });
 
-  const available = (lockers as Locker[] ?? []).filter(
-    (l) => l.status === "available"
-  ).length;
-  const occupied = (lockers as Locker[] ?? []).filter(
-    (l) => l.status === "occupied"
-  ).length;
-
   return (
     <DashboardClient
       initialLockers={(lockers as Locker[]) ?? []}
       userEmail={session?.user?.email ?? ""}
-      stats={{ available, occupied, total: (lockers ?? []).length }}
     />
   );
 }
