@@ -13,6 +13,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid range (max 200 at a time)" }, { status: 400 });
   const lockers = [];
   for (let i = from; i <= to; i++) lockers.push({ locker_number: i, status: "available", owner_name: null });
+
+  const { from, to } = await req.json();
+  if (typeof from !== "number" || typeof to !== "number" || from < 1 || to < from || to - from > 199) {
+    return NextResponse.json({ error: "Invalid range (max 200 at a time)" }, { status: 400 });
+  }
+
+  const lockers = [];
+  for (let i = from; i <= to; i++) {
+    lockers.push({ locker_number: i, status: "available", owner_name: null });
+  }
+
   const { data, error } = await supabase.from("lockers").insert(lockers).select();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data, { status: 201 });
