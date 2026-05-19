@@ -2,13 +2,22 @@
 import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
 import { signOut } from "next-auth/react";
-import { Locker } from "@/types";
+import { Locker, Department } from "@/types";
 
 interface Props {
   initialLockers: Locker[];
+  initialDepartments: Department[];
   userEmail: string;
 }
 
+export function DashboardClient({ initialLockers, initialDepartments, userEmail }: Props) {
+  const [lockers, setLockers] = useState<Locker[]>(initialLockers);
+  const [departments, setDepartments] = useState<Department[]>(initialDepartments);
+  const [search, setSearch] = useState("");
+  const [activeTab, setActiveTab] = useState<string>("all");
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showAdminsModal, setShowAdminsModal] = useState(false);
+  const [showDeptModal, setShowDeptModal] = useState(false);
 export function DashboardClient({ initialLockers, userEmail }: Props) {
   const [lockers, setLockers] = useState<Locker[]>(initialLockers);
   const [search, setSearch] = useState("");
@@ -20,6 +29,24 @@ export function DashboardClient({ initialLockers, userEmail }: Props) {
   const [deleting, setDeleting] = useState(false);
 
   const filtered = useMemo(() => {
+    let list = lockers;
+    if (search) {
+      list = list.filter(l =>
+        l.locker_number.toString().includes(search) ||
+        (l.owner_name?.toLowerCase() ?? "").includes(search.toLowerCase())
+      );
+    }
+    if (activeTab === "all") return list;
+    if (activeTab === "unassigned") return list.filter(l => !l.department_id);
+    return list.filter(l => l.department_id === activeTab);
+  }, [lockers, search, activeTab]);
+
+  const toggleSelect = (id: string) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) { next.delete(id); } else { next.add(id); }
+      return next;
+    });
     return lockers.filter((l) => {
       const matchSearch = search === "" || l.locker_number.toString().includes(search) || (l.owner_name?.toLowerCase() ?? "").includes(search.toLowerCase());
       const matchStatus = statusFilter === "all" || l.status === statusFilter;
@@ -40,6 +67,7 @@ export function DashboardClient({ initialLockers, userEmail }: Props) {
 
   const handleDeleteSelected = async () => {
     if (!selected.size) return;
+    if (!confirm("Удалить " + selected.size + " локер(ов)?")) return;
     if (!confirm("Удалить " + selected.size + " локер(ов)? Это действие нельзя отменить.")) return;
     setDeleting(true);
     try {
@@ -48,6 +76,24 @@ export function DashboardClient({ initialLockers, userEmail }: Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ids: Array.from(selected) }),
       });
+      if (!res.ok) throw new Error();
+      setLockers(prev => prev.filter(l => !selected.has(l.id)));
+      clearSelect();
+    } catch { alert("Ошибка при удалении"); }
+    finally { setDeleting(false); }
+  };
+
+  const handleAssignDept = async (department_id: string | null) => {
+    if (!selected.size) return;
+    try {
+      await fetch("/api/departments/assign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ department_id, locker_ids: Array.from(selected) }),
+      });
+      setLockers(prev => prev.map(l => selected.has(l.id) ? { ...l, department_id } : l));
+      clearSelect();
+    } catch { alert("Ошибка"); }
       if (!res.ok) throw new Error("Ошибка удаления");
       setLockers(prev => prev.filter(l => !selected.has(l.id)));
       clearSelect();
@@ -64,6 +110,12 @@ export function DashboardClient({ initialLockers, userEmail }: Props) {
     occupied: lockers.filter(l => l.status === "occupied").length,
   };
 
+  const tabs = [
+    { id: "all", label: "Все" },
+    { id: "unassigned", label: "Непризначені" },
+    ...departments.map(d => ({ id: d.id, label: d.name })),
+  ];
+
   return (
     <div className="min-h-screen bg-neutral-50">
       <header className="bg-white border-b border-neutral-100 sticky top-0 z-10">
@@ -77,6 +129,7 @@ export function DashboardClient({ initialLockers, userEmail }: Props) {
             <span className="text-sm font-semibold text-neutral-900 tracking-tight">Locker Admin</span>
           </div>
           <div className="flex items-center gap-3">
+            <button onClick={() => setShowDeptModal(true)} className="text-xs text-neutral-500 hover:text-neutral-900 transition-colors cursor-pointer">Відділи</button>
             <button onClick={() => setShowAdminsModal(true)} className="text-xs text-neutral-500 hover:text-neutral-900 transition-colors cursor-pointer">Администраторы</button>
             <span className="hidden sm:block text-xs text-neutral-400 font-mono">{userEmail}</span>
             <button onClick={() => signOut({ callbackUrl: "/login" })} className="text-xs text-neutral-500 hover:text-neutral-900 transition-colors cursor-pointer">Выйти</button>
@@ -85,6 +138,8 @@ export function DashboardClient({ initialLockers, userEmail }: Props) {
       </header>
 
       <main className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
+        {/* Статистика */}
+        <div className="grid grid-cols-3 gap-3 mb-6">
         <div className="grid grid-cols-3 gap-3 mb-8">
           {[{ label: "Всего", value: liveStats.total }, { label: "Свободно", value: liveStats.available }, { label: "Занято", value: liveStats.occupied }].map((s) => (
             <div key={s.label} className="bg-white rounded-2xl border border-neutral-100 p-4">
@@ -94,6 +149,20 @@ export function DashboardClient({ initialLockers, userEmail }: Props) {
           ))}
         </div>
 
+        {/* Вкладки відділів */}
+        <div className="flex gap-1 mb-5 overflow-x-auto pb-1">
+          {tabs.map(tab => (
+            <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+              className={"px-3 py-1.5 text-xs font-medium rounded-lg whitespace-nowrap transition-all cursor-pointer " + (activeTab === tab.id ? "bg-neutral-900 text-white" : "bg-white border border-neutral-200 text-neutral-600 hover:border-neutral-400")}>
+              {tab.label}
+              <span className="ml-1.5 text-xs opacity-60">
+                {tab.id === "all" ? lockers.length : tab.id === "unassigned" ? lockers.filter(l => !l.department_id).length : lockers.filter(l => l.department_id === tab.id).length}
+              </span>
+            </button>
+          ))}
+        </div>
+
+        {/* Пошук і дії */}
         <div className="flex flex-col sm:flex-row gap-2 mb-5">
           <div className="relative flex-1">
             <svg xmlns="http://www.w3.org/2000/svg" className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -101,6 +170,12 @@ export function DashboardClient({ initialLockers, userEmail }: Props) {
             </svg>
             <input type="text" placeholder="Поиск по номеру или имени..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-full pl-9 pr-4 py-2.5 text-sm border border-neutral-200 rounded-xl bg-white placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:border-transparent transition-all" />
           </div>
+          {!selectMode ? (
+            <>
+              <button onClick={() => setSelectMode(true)} className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-neutral-600 bg-white border border-neutral-200 rounded-xl hover:bg-neutral-50 transition-all cursor-pointer">
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                Вибрати
+              </button>
           <div className="flex items-center gap-1 bg-white border border-neutral-200 rounded-xl p-1">
             {(["all", "available", "occupied"] as const).map((f) => (
               <button key={f} onClick={() => setStatusFilter(f)} className={"px-3 py-1.5 text-xs font-medium rounded-lg transition-all cursor-pointer " + (statusFilter === f ? "bg-neutral-900 text-white" : "text-neutral-500 hover:text-neutral-900")}>
@@ -120,6 +195,25 @@ export function DashboardClient({ initialLockers, userEmail }: Props) {
               </button>
             </>
           ) : (
+            <div className="flex gap-2 flex-wrap">
+              <button onClick={selectAll} className="px-3 py-2 text-xs font-medium text-neutral-600 bg-white border border-neutral-200 rounded-xl hover:bg-neutral-50 cursor-pointer">Вибрати всі</button>
+              {departments.length > 0 && (
+                <select onChange={e => e.target.value && handleAssignDept(e.target.value || null)}
+                  className="px-3 py-2 text-xs font-medium text-neutral-600 bg-white border border-neutral-200 rounded-xl cursor-pointer focus:outline-none">
+                  <option value="">Призначити до відділу...</option>
+                  <option value="">— Без відділу</option>
+                  {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </select>
+              )}
+              <button onClick={handleDeleteSelected} disabled={!selected.size || deleting} className="px-3 py-2 text-xs font-medium bg-red-600 text-white rounded-xl hover:bg-red-700 disabled:opacity-40 cursor-pointer">
+                {deleting ? "..." : "Видалити (" + selected.size + ")"}
+              </button>
+              <button onClick={clearSelect} className="px-3 py-2 text-xs font-medium text-neutral-600 bg-white border border-neutral-200 rounded-xl hover:bg-neutral-50 cursor-pointer">Відміна</button>
+            </div>
+          )}
+        </div>
+
+        {/* Список локерів */}
             <>
               <button onClick={selectAll} className="px-4 py-2.5 text-sm font-medium text-neutral-600 bg-white border border-neutral-200 rounded-xl hover:bg-neutral-50 transition-all cursor-pointer">Выбрать все</button>
               <button onClick={handleDeleteSelected} disabled={!selected.size || deleting} className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium bg-red-600 text-white rounded-xl hover:bg-red-700 disabled:opacity-40 transition-all cursor-pointer">
@@ -135,6 +229,7 @@ export function DashboardClient({ initialLockers, userEmail }: Props) {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {filtered.map((locker) => (
+              <LockerCard key={locker.id} locker={locker} departments={departments} selectMode={selectMode} selected={selected.has(locker.id)} onToggle={() => toggleSelect(locker.id)} />
               <LockerCard key={locker.id} locker={locker} selectMode={selectMode} selected={selected.has(locker.id)} onToggle={() => toggleSelect(locker.id)} />
             ))}
           </div>
@@ -143,6 +238,140 @@ export function DashboardClient({ initialLockers, userEmail }: Props) {
 
       {showCreateModal && <CreateLockersModal onClose={() => setShowCreateModal(false)} onCreated={(newLockers) => { setLockers(prev => [...prev, ...newLockers]); setShowCreateModal(false); }} />}
       {showAdminsModal && <AdminsModal onClose={() => setShowAdminsModal(false)} currentEmail={userEmail} />}
+      {showDeptModal && <DepartmentsModal onClose={() => setShowDeptModal(false)} departments={departments} setDepartments={setDepartments} onDeptDeleted={(id) => setLockers(prev => prev.map(l => l.department_id === id ? { ...l, department_id: null } : l))} />}
+    </div>
+  );
+}
+
+function DepartmentsModal({ onClose, departments, setDepartments, onDeptDeleted }: {
+  onClose: () => void;
+  departments: Department[];
+  setDepartments: React.Dispatch<React.SetStateAction<Department[]>>;
+  onDeptDeleted: (id: string) => void;
+}) {
+  const [newName, setNewName] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleAdd = async () => {
+    setError(null);
+    if (!newName.trim()) return;
+    setAdding(true);
+    try {
+      const res = await fetch("/api/departments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: newName.trim() }) });
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error); }
+      const added = await res.json();
+      setDepartments(prev => [...prev, added].sort((a, b) => a.name.localeCompare(b.name)));
+      setNewName("");
+    } catch (e: unknown) { setError(e instanceof Error ? e.message : "Ошибка"); }
+    finally { setAdding(false); }
+  };
+
+  const handleDelete = async (id: string, name: string) => {
+    if (!confirm("Видалити відділ \"" + name + "\"? Локери стануть непризначеними.")) return;
+    try {
+      await fetch("/api/departments", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
+      setDepartments(prev => prev.filter(d => d.id !== id));
+      onDeptDeleted(id);
+    } catch { alert("Ошибка"); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl border border-neutral-100 p-6 w-full max-w-sm mx-4 shadow-xl">
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-base font-semibold text-neutral-900">Відділи</h2>
+          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-900 cursor-pointer">
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+        <div className="flex gap-2 mb-4">
+          <input type="text" placeholder="Назва відділу..." value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === "Enter" && handleAdd()} className="flex-1 px-3 py-2 text-sm border border-neutral-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:border-transparent" autoFocus />
+          <button onClick={handleAdd} disabled={adding || !newName.trim()} className="px-4 py-2 text-sm font-medium bg-neutral-900 text-white rounded-xl hover:bg-neutral-700 disabled:opacity-40 cursor-pointer">
+            {adding ? "..." : "Додати"}
+          </button>
+        </div>
+        {error && <p className="text-xs text-red-500 mb-3">{error}</p>}
+        <div className="space-y-2 max-h-60 overflow-y-auto">
+          {departments.length === 0 ? (
+            <p className="text-xs text-neutral-400 text-center py-4">Відділів ще немає</p>
+          ) : departments.map(d => (
+            <div key={d.id} className="flex items-center justify-between px-3 py-2 bg-neutral-50 rounded-xl">
+              <span className="text-sm text-neutral-700">{d.name}</span>
+              <button onClick={() => handleDelete(d.id, d.name)} className="text-xs text-neutral-400 hover:text-red-600 transition-colors cursor-pointer">Видалити</button>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AdminsModal({ onClose, currentEmail }: { onClose: () => void; currentEmail: string }) {
+  const [admins, setAdmins] = useState<{ id: string; email: string }[]>([]);
+  const [newEmail, setNewEmail] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [adding, setAdding] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/admins").then(r => r.json()).then(d => { setAdmins(d); setLoading(false); });
+  }, []);
+
+  const handleAdd = async () => {
+    setError(null);
+    if (!newEmail.includes("@")) { setError("Введите корректный email"); return; }
+    setAdding(true);
+    try {
+      const res = await fetch("/api/admins", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: newEmail }) });
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error); }
+      const added = await res.json();
+      setAdmins(prev => [...prev, added]);
+      setNewEmail("");
+    } catch (e: unknown) { setError(e instanceof Error ? e.message : "Ошибка"); }
+    finally { setAdding(false); }
+  };
+
+  const handleRemove = async (email: string) => {
+    if (!confirm("Удалить " + email + "?")) return;
+    try {
+      await fetch("/api/admins", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email }) });
+      setAdmins(prev => prev.filter(a => a.email !== email));
+    } catch { alert("Ошибка"); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl border border-neutral-100 p-6 w-full max-w-sm mx-4 shadow-xl">
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-base font-semibold text-neutral-900">Администраторы</h2>
+          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-900 cursor-pointer">
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+        <div className="flex gap-2 mb-4">
+          <input type="email" placeholder="email@example.com" value={newEmail} onChange={e => setNewEmail(e.target.value)} onKeyDown={e => e.key === "Enter" && handleAdd()} className="flex-1 px-3 py-2 text-sm border border-neutral-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:border-transparent" />
+          <button onClick={handleAdd} disabled={adding || !newEmail.trim()} className="px-4 py-2 text-sm font-medium bg-neutral-900 text-white rounded-xl hover:bg-neutral-700 disabled:opacity-40 transition-all cursor-pointer">
+            {adding ? "..." : "Добавить"}
+          </button>
+        </div>
+        {error && <p className="text-xs text-red-500 mb-3">{error}</p>}
+        <div className="space-y-2 max-h-60 overflow-y-auto">
+          {loading ? (
+            <p className="text-xs text-neutral-400 text-center py-4">Загрузка...</p>
+          ) : admins.length === 0 ? (
+            <p className="text-xs text-neutral-400 text-center py-4">Нет администраторов</p>
+          ) : admins.map(a => (
+            <div key={a.id} className="flex items-center justify-between px-3 py-2 bg-neutral-50 rounded-xl">
+              <span className="text-sm text-neutral-700 font-mono">{a.email}</span>
+              {a.email !== currentEmail && (
+                <button onClick={() => handleRemove(a.email)} className="text-xs text-neutral-400 hover:text-red-600 transition-colors cursor-pointer">Удалить</button>
+              )}
+            </div>
+          ))}
+        </div>
+        <p className="text-xs text-neutral-400 mt-4">После добавления администратору нужно войти через Google.</p>
+      </div>
     </div>
   );
 }
@@ -246,6 +475,7 @@ function CreateLockersModal({ onClose, onCreated }: { onClose: () => void; onCre
   const handlePrint = () => {
     if (!createdLockers) return;
     const baseUrl = window.location.origin;
+    const html = "<!DOCTYPE html><html><head><meta charset=\"utf-8\"/><title>QR</title>" +
     const html = "<!DOCTYPE html><html><head><meta charset=\"utf-8\"/><title>QR коды локеров</title>" +
       "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js\"><\/script>" +
       "<style>*{margin:0;padding:0;box-sizing:border-box;}body{font-family:Arial,sans-serif;}" +
@@ -257,6 +487,7 @@ function CreateLockersModal({ onClose, onCreated }: { onClose: () => void; onCre
       "<body><div class=\"grid\" id=\"grid\"></div><script>" +
       "const lockers=" + JSON.stringify(createdLockers.map(l => ({ id: l.id, number: l.locker_number }))) + ";" +
       "const baseUrl=\"" + baseUrl + "\";const grid=document.getElementById(\"grid\");" +
+      "lockers.forEach(l=>{const item=document.createElement(\"div\");item.className=\"item\";" +
       "lockers.forEach(l=>{" +
       "const item=document.createElement(\"div\");item.className=\"item\";" +
       "const wrap=document.createElement(\"div\");wrap.className=\"qr-wrap\";" +
@@ -308,6 +539,9 @@ function CreateLockersModal({ onClose, onCreated }: { onClose: () => void; onCre
   );
 }
 
+function LockerCard({ locker, departments, selectMode, selected, onToggle }: { locker: Locker; departments: Department[]; selectMode: boolean; selected: boolean; onToggle: () => void }) {
+  const isOccupied = locker.status === "occupied";
+  const dept = departments.find(d => d.id === locker.department_id);
 function LockerCard({ locker, selectMode, selected, onToggle }: { locker: Locker; selectMode: boolean; selected: boolean; onToggle: () => void }) {
   const isOccupied = locker.status === "occupied";
   const updatedAt = new Date(locker.updated_at).toLocaleDateString("ru-RU", { day: "numeric", month: "short", year: "numeric" });
@@ -318,6 +552,7 @@ function LockerCard({ locker, selectMode, selected, onToggle }: { locker: Locker
         <div className="flex items-start justify-between">
           <div>
             <span className="text-xs font-mono text-neutral-400">#{locker.locker_number}</span>
+            {dept && <span className="ml-2 text-xs text-neutral-400">{dept.name}</span>}
             <p className="mt-1 text-base font-medium text-neutral-900">{isOccupied ? locker.owner_name || "—" : "Свободно"}</p>
           </div>
           <div className={"w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 mt-0.5 " + (selected ? "bg-neutral-900 border-neutral-900" : "border-neutral-300")}>
@@ -334,6 +569,7 @@ function LockerCard({ locker, selectMode, selected, onToggle }: { locker: Locker
       <div className="flex items-start justify-between">
         <div>
           <span className="text-xs font-mono text-neutral-400">#{locker.locker_number}</span>
+          {dept && <span className="ml-2 text-xs px-1.5 py-0.5 bg-neutral-100 text-neutral-500 rounded-md">{dept.name}</span>}
           <p className="mt-1 text-base font-medium text-neutral-900">{isOccupied ? locker.owner_name || "—" : "Свободно"}</p>
         </div>
         <span className={"mt-0.5 inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full " + (isOccupied ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-600")}>
