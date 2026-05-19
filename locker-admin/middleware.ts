@@ -21,7 +21,7 @@ export default withAuth(
         const { pathname } = req.nextUrl;
 
         // Публичные маршруты — не требуют авторизации
-        const publicPaths = ["/login", "/access-denied", "/api/auth"];
+        const publicPaths = ["/login", "/access-denied", "/api/auth", "/locker/"];
         const isPublic = publicPaths.some((p) => pathname.startsWith(p));
 
         if (isPublic) return true;
