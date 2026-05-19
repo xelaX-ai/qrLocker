@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { Locker } from "@/types";
 import { notFound } from "next/navigation";
 import { LockerClient } from "./LockerClient";
+import { LockerPublicView } from "./LockerPublicView";
 
 export const dynamic = "force-dynamic";
 
@@ -21,12 +22,14 @@ export default async function LockerPage({ params }: Props) {
     .eq("id", params.id)
     .single();
 
-  if (error || !data) {
-    notFound();
-  }
+  if (error || !data) notFound();
 
-  const baseUrl =
-    process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+  const isAdmin = !!session;
+
+  if (!isAdmin) {
+    return <LockerPublicView locker={data as Locker} />;
+  }
 
   return (
     <LockerClient
