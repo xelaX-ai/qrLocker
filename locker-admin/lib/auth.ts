@@ -1,13 +1,6 @@
-// Конфигурация NextAuth с Google OAuth и вайтлистом email-адресов
-
 import { NextAuthOptions } from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
-
-// Список разрешённых email-адресов администраторов
-const ALLOWED_EMAILS = (process.env.ALLOWED_EMAILS ?? "")
-  .split(",")
-  .map((e) => e.trim().toLowerCase())
-  .filter(Boolean);
+import { supabase } from "@/lib/supabase";
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -17,12 +10,42 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   callbacks: {
-    // Проверяем, что пользователь есть в вайтлисте при входе
     async signIn({ user }) {
       if (!user.email) return false;
-      return ALLOWED_EMAILS.includes(user.email.toLowerCase());
+      const email = user.email.toLowerCase().trim();
+
+      console.log("[auth] signIn attempt:", email);
+
+      // Перевіряємо ALLOWED_EMAILS з env
+      const allowedEmails = (process.env.ALLOWED_EMAILS ?? "")
+        .split(",")
+        .map((e) => e.trim().toLowerCase())
+        .filter(Boolean);
+
+      console.log("[auth] ALLOWED_EMAILS:", allowedEmails);
+
+      if (allowedEmails.includes(email)) {
+        console.log("[auth] allowed via env");
+        return true;
+      }
+
+      // Перевіряємо в таблиці admins
+      const { data, error } = await supabase
+        .from("admins")
+        .select("email")
+        .eq("email", email)
+        .single();
+
+      console.log("[auth] supabase result:", { data, error: error?.message });
+
+      if (data) {
+        console.log("[auth] allowed via supabase");
+        return true;
+      }
+
+      console.log("[auth] denied");
+      return false;
     },
-    // Добавляем email в JWT токен для последующих проверок
     async jwt({ token, user }) {
       if (user?.email) token.email = user.email;
       return token;
@@ -40,6 +63,6 @@ export const authOptions: NextAuthOptions = {
   },
   session: {
     strategy: "jwt",
-    maxAge: 30 * 24 * 60 * 60, // 30 дней
+    maxAge: 30 * 24 * 60 * 60,
   },
 };
