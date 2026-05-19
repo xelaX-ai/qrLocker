@@ -13,11 +13,6 @@ export default async function DashboardPage() {
     supabase.from("lockers").select("*").order("locker_number", { ascending: true }),
     supabase.from("departments").select("*").order("name"),
   ]);
-  // Загружаем все локеры на сервере для мгновенного отображения
-  const { data: lockers } = await supabase
-    .from("lockers")
-    .select("*")
-    .order("locker_number", { ascending: true });
 
   return (
     <DashboardClient
