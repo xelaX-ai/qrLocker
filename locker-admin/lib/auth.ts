@@ -12,24 +12,39 @@ export const authOptions: NextAuthOptions = {
   callbacks: {
     async signIn({ user }) {
       if (!user.email) return false;
-      const email = user.email.toLowerCase();
+      const email = user.email.toLowerCase().trim();
 
-      // Перевіряємо в таблиці admins
-      const { data } = await supabase
-        .from("admins")
-        .select("email")
-        .eq("email", email)
-        .single();
+      console.log("[auth] signIn attempt:", email);
 
-      if (data) return true;
-
-      // Fallback: перевіряємо ALLOWED_EMAILS з env (для першого адміна)
+      // Перевіряємо ALLOWED_EMAILS з env
       const allowedEmails = (process.env.ALLOWED_EMAILS ?? "")
         .split(",")
         .map((e) => e.trim().toLowerCase())
         .filter(Boolean);
 
-      return allowedEmails.includes(email);
+      console.log("[auth] ALLOWED_EMAILS:", allowedEmails);
+
+      if (allowedEmails.includes(email)) {
+        console.log("[auth] allowed via env");
+        return true;
+      }
+
+      // Перевіряємо в таблиці admins
+      const { data, error } = await supabase
+        .from("admins")
+        .select("email")
+        .eq("email", email)
+        .single();
+
+      console.log("[auth] supabase result:", { data, error: error?.message });
+
+      if (data) {
+        console.log("[auth] allowed via supabase");
+        return true;
+      }
+
+      console.log("[auth] denied");
+      return false;
     },
     async jwt({ token, user }) {
       if (user?.email) token.email = user.email;
