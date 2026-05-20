@@ -13,7 +13,6 @@ export function LockerPublicView({ locker }: Props) {
     <div className="min-h-screen bg-neutral-50 flex items-center justify-center px-4">
       <div className="bg-white rounded-2xl border border-neutral-100 p-8 w-full max-w-sm shadow-sm">
 
-        {/* Лого + статус */}
         <div className="flex items-center justify-between mb-6">
           <div className="w-8 h-8 rounded-lg bg-neutral-900 flex items-center justify-center">
             <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -26,16 +25,21 @@ export function LockerPublicView({ locker }: Props) {
           </span>
         </div>
 
-        {/* Номер і власник */}
         <p className="text-xs font-mono text-neutral-400 mb-1">ЛОКЕР</p>
         <h1 className="text-5xl font-semibold text-neutral-900 tabular-nums mb-2">
           #{locker.locker_number}
         </h1>
+
+        {locker.department && (
+          <span className="inline-block text-xs px-2 py-0.5 bg-neutral-100 text-neutral-500 rounded-md mb-3">
+            {locker.department}
+          </span>
+        )}
+
         <p className="text-lg font-medium text-neutral-700 mb-8">
           {locker.owner_name || <span className="text-neutral-400 font-normal">Вільно</span>}
         </p>
 
-        {/* Розділювач */}
         <div className="border-t border-neutral-100 pt-6">
           <p className="text-xs text-neutral-400 text-center mb-4">Вхід для адміністраторів</p>
           <button
